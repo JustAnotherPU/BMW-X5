@@ -1,0 +1,62 @@
+# Automatisation Home Assistant : ouverture de la porte via Nuki
+# lorsque la plaque d'immatriculation 1UEC269 est détectée
+# entre 07:30 et 08:00, tous les jours.
+#
+# À placer dans votre configuration Home Assistant :
+#   - soit dans le fichier automations.yaml (coller le contenu de la liste ci-dessous),
+#   - soit via l'interface : Paramètres > Automatisations > Nouvelle automatisation > Éditer en YAML.
+#
+# Points à adapter à votre installation :
+#   1. Le déclencheur (trigger) : selon votre solution de reconnaissance de
+#      plaques (Frigate + LPR, Plate Recognizer, sensor dédié, etc.), adaptez
+#      l'entité ou l'événement. Deux variantes courantes sont fournies :
+#      un capteur d'état et un événement MQTT Frigate (dé-commentez celle qui convient).
+#   2. L'entité Nuki : remplacez `lock.nuki_porte` par l'entity_id réel de votre
+#      serrure (visible dans Paramètres > Appareils et services > Nuki).
+#      Le service `lock.open` déclenche l'ouverture du pêne (unlatch), ce qui
+#      ouvre réellement la porte ; `lock.unlock` ne ferait que déverrouiller.
+
+- id: plaque_1uec269_ouverture_nuki
+  alias: "Plaque 1UEC269 détectée → ouvrir la porte (Nuki)"
+  description: >-
+    Ouvre la porte via la serrure Nuki quand la plaque 1UEC269 est détectée
+    entre 07:30 et 08:00, tous les jours.
+  mode: single
+  # Anti-rebond : ignore les détections répétées pendant 5 minutes
+  # après une ouverture (voir la condition "cooldown" plus bas).
+
+  trigger:
+    # Variante A — capteur de reconnaissance de plaques (Plate Recognizer,
+    # image_processing, capteur template, etc.) dont l'état devient la plaque lue.
+    - platform: state
+      entity_id: sensor.reconnaissance_plaque
+      to: "1UEC269"
+
+    # Variante B — Frigate avec reconnaissance de plaques (sub_label) via MQTT.
+    # Dé-commentez et adaptez le nom de la caméra si vous utilisez Frigate :
+    # - platform: mqtt
+    #   topic: frigate/events
+    #   value_template: "{{ value_json['after']['sub_label'] }}"
+    #   payload: "1UEC269"
+
+  condition:
+    # Fenêtre horaire : tous les jours entre 07:30 et 08:00
+    - condition: time
+      after: "07:30:00"
+      before: "08:00:00"
+    # Cooldown : ne pas rouvrir si l'automatisation a déjà tourné il y a moins de 5 min
+    - condition: template
+      value_template: >-
+        {{ this.attributes.last_triggered is none
+           or (now() - this.attributes.last_triggered).total_seconds() > 300 }}
+
+  action:
+    # `lock.open` = ouverture du pêne Nuki (la porte s'ouvre vraiment)
+    - service: lock.open
+      target:
+        entity_id: lock.nuki_porte
+    # Notification optionnelle pour tracer chaque ouverture automatique
+    - service: logbook.log
+      data:
+        name: "Nuki"
+        message: "Porte ouverte automatiquement : plaque 1UEC269 détectée ({{ now().strftime('%H:%M:%S') }})"
